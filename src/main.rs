@@ -207,15 +207,15 @@ struct TokenStream {
                         // if we find a different character (an operator), add the number to the stream,
                         // clear the buffer, and add the operator to the stream
                         Some(x) => {
-                            // Skip whitespace
-                            if x.is_whitespace() { continue; }
                             // if the character is not an operator, return an error
-                            else if !Operator::char_is_valid(&x) {
+                            if !Operator::char_is_valid(&x) && !x.is_whitespace() {
                                 return Err(Error::new(ErrorKind::Other, format!("Encountered unexpected character: '{}'", x)));
                             }
                             stream.add_token(Token::number_from_str(buf.clone())?);
                             buf = String::new();
-                            stream.add_token(Token::operator_from_char(&x)?);
+                            if !x.is_whitespace() {
+                                stream.add_token(Token::operator_from_char(&x)?);
+                            }
                             break 'num_search;
                         },
                         // otherwise, break the search (will exit the main loop, no chars left in the iterator)
