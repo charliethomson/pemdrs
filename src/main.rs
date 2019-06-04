@@ -1,11 +1,12 @@
 use std::{
     io::{ Error, ErrorKind, },
-    fmt::{ Debug, Display, Formatter, Result as fmt_Result, },
+    fmt::{ Display, Formatter, Result as fmt_Result, },
+    collections::{ VecDeque, },
 };
 
 fn join<T: Display>(v: Vec<T>, sep: T) -> String {
     let mut out = String::new();
-    let last_index = v.len() - 1;
+    let last_index = if v.len() != 0 { v.len() - 1 } else { 0 };
     for (index, item) in v.into_iter().enumerate() {
         if index == last_index {
             out.extend(format!("{}", item).chars());
@@ -16,7 +17,19 @@ fn join<T: Display>(v: Vec<T>, sep: T) -> String {
     return out;
 }
 
-#[derive(Clone)]
+fn precedence(op: Operator) -> usize {
+    match op {
+        Operator::Pow => 4,
+        Operator::Mod => 4,
+        Operator::Mul => 3,
+        Operator::Div => 3,
+        Operator::Sub => 2,
+        Operator::Add => 2,
+        Operator::Paren(_) => 0,
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
 enum Paren {
     Left,
     Right,
@@ -35,16 +48,24 @@ enum Paren {
             _ => false,
         }
     }
+
+    fn as_str(&self) -> String {
+        match self {
+            Paren::Left => format!("{}", '('),
+            _ => format!("{}", ')'),
+        }
+    }
     
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy, Debug)]
 enum Operator {
     Add,
     Sub,
     Mul,
     Div,
     Mod,
+    Pow,
     Paren(Paren),
 } impl Operator {
     fn char_is_valid(c: &char) -> bool {
@@ -61,6 +82,7 @@ enum Operator {
             '/' => Ok(Operator::Mul),
             '*' => Ok(Operator::Div),
             '%' => Ok(Operator::Mod),
+            '^' => Ok(Operator::Pow),
             '(' => Ok(Operator::Paren(Paren::Left)),
             ')' => Ok(Operator::Paren(Paren::Right)),
             o   => Err(Error::new(ErrorKind::Other, format!("Unexpected operator in <Operator>::from_char({})", o)))
@@ -76,17 +98,29 @@ enum Operator {
             Operator::Mul => format!("{}", '/'),
             Operator::Div => format!("{}", '*'),
             Operator::Mod => format!("{}", '%'),
-            Operator::Paren(Paren::Left) => format!("{}", '('),
-            Operator::Paren(Paren::Right) => format!("{}", ')'),
+            Operator::Pow => format!("{}", '^'),
+            Operator::Paren(p) => p.as_str(),
         }
     }
+
+    fn to_owned(&self) -> Self {
+        self.clone()
+    }
+
+    fn is(&self, other: &Self) -> bool {
+        match self {
+            other => true,
+            _     => false,
+        }
+    }
+
 } impl Display for Operator {
     fn fmt(&self, f: &mut Formatter) -> fmt_Result {
         write!(f, "{}", self.as_str())
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Number {
     value: usize,    
 } impl Number
@@ -120,7 +154,7 @@ struct Number {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum Token {
     Number(Number),
     Operator(Operator),
@@ -172,12 +206,20 @@ enum Token {
             Token::Operator(op) => op.as_str(),
         }
     }
+
+    fn is_paren(&self) -> bool {
+        match self {
+            Token::Operator(Operator::Paren(_)) => true,
+            _ => false,
+        }
+    }
 } impl Display for Token {
     fn fmt(&self, f: &mut Formatter) -> fmt_Result {
         write!(f, "{}", self.as_str())
     }
 }
 
+#[derive(Clone)]
 struct TokenStream {
     tokens: Vec<Token>,
 } impl TokenStream {
@@ -185,7 +227,8 @@ struct TokenStream {
         Self { tokens: Vec::new() }
     }
 
-    fn from_string(s: &String) -> Result<Self, Error> {
+    fn from_string(s: &mut String) -> Result<Self, Error> {
+        s.push(' ');
         let mut iter = s.chars();
         let mut buf = String::new();
         let mut stream = Self::new();
@@ -208,8 +251,10 @@ struct TokenStream {
                         // clear the buffer, and add the operator to the stream
                         Some(x) => {
                             // if the character is not an operator, return an error
-                            if !Operator::char_is_valid(&x) && !x.is_whitespace() {
-                                return Err(Error::new(ErrorKind::Other, format!("Encountered unexpected character: '{}'", x)));
+                            if !Operator::char_is_valid(&x) {
+                                if !x.is_whitespace() {
+                                    return Err(Error::new(ErrorKind::Other, format!("Encountered unexpected character: '{}'", x)));
+                                }
                             }
                             stream.add_token(Token::number_from_str(buf.clone())?);
                             buf = String::new();
@@ -226,6 +271,8 @@ struct TokenStream {
             } else if Operator::char_is_valid(&c) {
                 stream.add_token(Token::operator_from_char(&c)?);
                 buf = String::new();
+            } else {
+                return Err(Error::new(ErrorKind::Other, format!("Encountered unexpected character: '{}'", c)));
             }
         }
 
@@ -241,10 +288,74 @@ struct TokenStream {
     }
 }
 
+fn shunting_yard(stream: TokenStream) -> Result<TokenStream, Error> {
+    let mut output = TokenStream::new();
+    let mut opstack = VecDeque::<Operator>::new();
 
+    let mut tokens = stream.tokens.clone().into_iter();
 
-fn main() {
-    let s = String::from("(10 + 11) - 3 / (4 * 11)");
+    while let Some(token) = tokens.next() {
+        // if the token is a number, push it to the output
+        if let Token::Number(num) = token.clone() {
+            output.add_token(token.clone());
+        // if the token is an operator
+        } else if let Token::Operator(operator) = token.clone() {
+            // if the token is a paren
+            if let Operator::Paren(paren) = operator.clone() {
+                match paren {
+                    // if the token is a left paren, push it to the operator stack
+                    Paren::Left => {
+                        opstack.push_back(operator);
+                    },
+                    // if the token is a right paren
+                    Paren::Right => {
+                        // while ..
+                        'lparen_search: loop {
+                            match opstack.back() {
+                                Some(Operator::Paren(p)) => {
+                                    opstack.pop_back();
+                                    break 'lparen_search;
+                                },
+                                Some(op) => {
+                                    output.add_token(Token::operator(opstack.pop_back().unwrap().to_owned()));
+                                },
+                                None => return Err(Error::new(ErrorKind::Other, String::from("Mismatched parens")))
+                            }
+                            // opstack.pop_back();
+                        }
+                    },
+                }
+            // if it's an operator but not a paren (therefore not a left paren)
+            } else {
+                // while ... 
+                while !opstack.is_empty() && (precedence(opstack.back().unwrap().to_owned()) > precedence(operator) || (precedence(opstack.back().unwrap().to_owned()) == precedence(operator) && operator.is(&Operator::Pow))) {
+                    output.add_token(Token::operator(opstack.pop_back().unwrap()));
+                }
+                opstack.push_back(operator.clone());
+            }
+        }
+    }
 
-    eprintln!("original: {};\nTokenStream: {};", &s, TokenStream::from_string(&s).unwrap());
+    for operator in opstack {
+        match operator {
+            Operator::Paren(_) => return Err(Error::new(ErrorKind::Other, String::from("Mismatched parens"))),
+            _ => output.add_token(Token::operator(operator.to_owned())),
+        }
+    }
+
+    return Ok(output);
+}
+
+fn main() -> Result<(), Error> {
+    let mut s = String::from("3 + 4 * 2 / (1 - 5 ) ^ 2 ^ 3");
+    let stream = TokenStream::from_string(&mut s)?;
+
+    eprintln!(
+        "original: {};\nTokenStream: {:?};\nshunting yard: {}",
+        &s,
+        stream.clone().tokens,
+        shunting_yard(stream.clone())?
+    );
+
+    return Ok(())
 }
