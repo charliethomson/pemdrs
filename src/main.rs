@@ -3,6 +3,19 @@ use std::{
     fmt::{ Debug, Display, Formatter, Result as fmt_Result, },
 };
 
+fn join<T: Display>(v: Vec<T>, sep: T) -> String {
+    let mut out = String::new();
+    let last_index = v.len() - 1;
+    for (index, item) in v.into_iter().enumerate() {
+        if index == last_index {
+            out.extend(format!("{}", item).chars());
+        } else {
+            out.extend(format!("{}{}", item, sep).chars());
+        }
+    }
+    return out;
+}
+
 #[derive(Clone)]
 enum Paren {
     Left,
@@ -67,7 +80,10 @@ enum Operator {
             Operator::Paren(Paren::Right) => format!("{}", ')'),
         }
     }
-
+} impl Display for Operator {
+    fn fmt(&self, f: &mut Formatter) -> fmt_Result {
+        write!(f, "{}", self.as_str())
+    }
 }
 
 #[derive(Clone)]
@@ -97,6 +113,10 @@ struct Number {
 
     fn as_str(&self) -> String {
         format!("{}", self.value)
+    }
+} impl Display for Number {
+    fn fmt(&self, f: &mut Formatter) -> fmt_Result {
+        write!(f, "{}", self.as_str())
     }
 }
 
@@ -152,6 +172,10 @@ enum Token {
             Token::Operator(op) => op.as_str(),
         }
     }
+} impl Display for Token {
+    fn fmt(&self, f: &mut Formatter) -> fmt_Result {
+        write!(f, "{}", self.as_str())
+    }
 }
 
 struct TokenStream {
@@ -183,6 +207,7 @@ struct TokenStream {
                         // if we find a different character (an operator), add the number to the stream,
                         // clear the buffer, and add the operator to the stream
                         Some(x) => {
+                            // Skip whitespace
                             if x.is_whitespace() { continue; }
                             // if the character is not an operator, return an error
                             else if !Operator::char_is_valid(&x) {
@@ -210,12 +235,9 @@ struct TokenStream {
     fn add_token(&mut self, token: Token) {
         self.tokens.push(token);
     }
-} impl Debug for TokenStream {
+} impl Display for TokenStream {
     fn fmt(&self, f: &mut Formatter) -> fmt_Result {
-        for token in self.tokens.clone().iter() {
-            write!(f, "{} ", token.as_str());
-        }
-        write!(f, "")
+        write!(f, "{}", join(self.tokens.clone(), Token::Whitespace))
     }
 }
 
@@ -224,5 +246,5 @@ struct TokenStream {
 fn main() {
     let s = String::from("(10 + 11) - 3 / (4 * 11)");
 
-    eprintln!("original: {};\nTokenStream: {:?};", &s, TokenStream::from_string(&s).unwrap());
+    eprintln!("original: {};\nTokenStream: {};", &s, TokenStream::from_string(&s).unwrap());
 }
