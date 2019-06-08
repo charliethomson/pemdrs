@@ -1,5 +1,10 @@
 mod pemdrs;
 
+fn main() {
+    use crate::pemdrs::eval_str;
+    eprintln!("{:?}", eval_str("4 + 4 / 4 + 5"));
+}
+
 mod tests {
     use crate::pemdrs::eval_string;
 

@@ -31,7 +31,7 @@ enum Operator {
             '*' => Ok(Operator::Mul),
             '^' => Ok(Operator::Pow),
             '%' => Ok(Operator::Mod),
-            o => Err(Error::new(ErrorKind::Other, format!("Encountered unexpected character `{}`", o))),
+            o => Err(Error::new(ErrorKind::Other, format!("ErrNo 7: Encountered unexpected character `{}`", o))),
         }
     }
     
@@ -54,14 +54,14 @@ enum Operator {
             Operator::Mul => { Ok(lhs * rhs) },
             Operator::Mod => { 
                 if lhs == 0 {
-                    Err(Error::new(ErrorKind::Other, "Unable to modulo by zero"))
+                    Err(Error::new(ErrorKind::Other, "ErrNo 8: Unable to modulo by zero"))
                 } else {
                     Ok(rhs % lhs)
                 }
             },
             Operator::Div => { 
                 if lhs == 0 {
-                    Err(Error::new(ErrorKind::Other, "Unable to divide by zero"))
+                    Err(Error::new(ErrorKind::Other, "ErrNo 9: Unable to divide by zero"))
                 } else {
                     Ok(rhs / lhs) 
                 }
@@ -83,7 +83,7 @@ enum Token {
     fn number_from_str(s: &String) -> Result<Self, Error> {
         match s.parse::<usize>() {
             Ok(n) => Ok(Token::Number(n)),
-            Err(e) => Err(Error::new(ErrorKind::Other, format!("Error getting number from string: {}", e)))
+            Err(e) => Err(Error::new(ErrorKind::Other, format!("ErrNo 10: Error getting number from string: {}", e)))
         }
     }
 
@@ -91,7 +91,7 @@ enum Token {
         match c {
             '(' => Ok(Token::Paren(true)),
             ')' => Ok(Token::Paren(false)),
-            o => Err(Error::new(ErrorKind::Other, format!("Unable to create paren from non paren character `{}`", o)))
+            o => Err(Error::new(ErrorKind::Other, format!("ErrNo 11: Unable to create paren from non paren character `{}`", o)))
         }
     }
 
@@ -339,7 +339,7 @@ fn shunting_yard(stream: &TokenStream) -> Result<TokenStream, Error> {
                                     }
                                 },
                                 // if the operator stack empties, you have mismatched parens
-                                None => { return Err(Error::new(ErrorKind::Other, "ErrNo 6: Mismatched Parens!"))}
+                                None => { return Err(Error::new(ErrorKind::Other, "ErrNo 5: Mismatched parens: missing opening paren"))}
                             }
                         }
                     }
@@ -352,10 +352,11 @@ fn shunting_yard(stream: &TokenStream) -> Result<TokenStream, Error> {
     // while there are operators on the stack, pop them to output
     while let Some(op) = opstack.last() {
         match op {
-            // if the token is a paren, you have mismatched parens
+            // if the token is a paren, you have an exttra opening paren
             Token::Paren(_) => {
-                return Err(Error::new(ErrorKind::Other, "ErrNo 7: Mismatched Parens!"));
+                return Err(Error::new(ErrorKind::Other, "ErrNo 6: Mismatched parens: missing closing paren"));
             },
+            // otherwise pop the operator to the output
             _ => {
                 output.add_token(&op);
                 opstack.pop();
@@ -377,12 +378,12 @@ fn eval_rpn(stream: &TokenStream) -> Result<usize, Error> {
                 
                 let x = match stack.pop() {
                     Some(n) => n,
-                    None    => return Err(Error::new(ErrorKind::Other, "Unbalanced operation"))
+                    None    => return Err(Error::new(ErrorKind::Other, "Too many operators"))
                 };
 
                 let y = match stack.pop() {
                     Some(n) => n,
-                    None    => return Err(Error::new(ErrorKind::Other, "Unbalanced operation"))
+                    None    => return Err(Error::new(ErrorKind::Other, "Too many operators"))
                 };
                 
                 stack.push(op.eval(x, y)?);
@@ -396,9 +397,17 @@ fn eval_rpn(stream: &TokenStream) -> Result<usize, Error> {
         }
     }
 
-    Ok(stack.first().unwrap().to_owned())
+    if stack.len() != 1 {
+        return Err(Error::new(ErrorKind::Other, format!("Too few operators. Stack: {:?}", stack)));
+    } else {
+        return Ok(stack.last().unwrap().to_owned());
+    }
 }
 
 pub fn eval_string(string: &String) -> Result<usize, Error> {
     Ok(eval_rpn(&shunting_yard(&TokenStream::from_string(&mut string.clone())?)?)?)
+}
+
+pub fn eval_str(s: &'static str) -> Result<usize, Error> {
+    eval_string(&String::from(s))
 }
