@@ -1,11 +1,12 @@
 use std::{
     io::{ Error, ErrorKind, },
-    fmt::{ Debug, Display, Formatter, Result as fmt_Result, },
+    fmt::{ Display, Formatter, Result as fmt_Result, },
+    collections::{ VecDeque, },
 };
 
 fn join<T: Display>(v: Vec<T>, sep: T) -> String {
     let mut out = String::new();
-    let last_index = v.len() - 1;
+    let last_index = if v.len() != 0 { v.len() - 1 } else { 0 };
     for (index, item) in v.into_iter().enumerate() {
         if index == last_index {
             out.extend(format!("{}", item).chars());
@@ -80,6 +81,7 @@ enum Operator {
             Operator::Paren(Paren::Right) => format!("{}", ')'),
         }
     }
+
 } impl Display for Operator {
     fn fmt(&self, f: &mut Formatter) -> fmt_Result {
         write!(f, "{}", self.as_str())
@@ -172,6 +174,13 @@ enum Token {
             Token::Operator(op) => op.as_str(),
         }
     }
+
+    fn is_paren(&self) -> bool {
+        match self {
+            Token::Operator(Operator::Paren(_)) => true,
+            _ => false,
+        }
+    }
 } impl Display for Token {
     fn fmt(&self, f: &mut Formatter) -> fmt_Result {
         write!(f, "{}", self.as_str())
@@ -241,10 +250,35 @@ struct TokenStream {
     }
 }
 
+fn shunting_yard(stream: TokenStream) -> Result<TokenStream, Error> {
+    let mut output = TokenStream::new();
+    let mut opstack = VecDeque::<Operator>::new();
 
+    let mut tokens = stream.tokens.clone().into_iter();
+    
+    // read each token
+    while let Some(token) = tokens.next() {
+        // if the token is a number, push it to the output
+        if let Token::Number(num) = token {
+            
+        // if the token is an operator
+        } else if let Token::Operator(operator) = token.clone() {
+            // if the token is a paren
+            if let Operator::Paren(paren) = operator {
+                eprintln!("{:?}", paren.is_left());
+                output.add_token(token.clone());
+            } else {
+                // while ... 
+                
+            }
+        }
+    }
+
+    return Ok(output);
+}
 
 fn main() {
     let s = String::from("(10 + 11) - 3 / (4 * 11)");
 
-    eprintln!("original: {};\nTokenStream: {};", &s, TokenStream::from_string(&s).unwrap());
+    eprintln!("original: {};\nTokenStream: {};\nshunting yard: {}", &s, TokenStream::from_string(&s).unwrap(), shunting_yard(TokenStream::from_string(&s).unwrap()).unwrap());
 }
