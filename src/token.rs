@@ -43,7 +43,13 @@ pub enum Operator {
             Self::Add => left + right,
             Self::Sub => left - right,
             Self::Mul => left * right,
-            Self::Div => left / right,
+            Self::Div => {
+                if right == 0.0 {
+                    panic!("Divide by zero");
+                } else {
+                    left / right
+                }
+            },
             Self::Pow => left.powf(right),
             Self::USub => -right,
         }
@@ -165,6 +171,7 @@ pub enum Token {
 /// assert!(tokens == tokenize("(10+5)"));
 /// ```
 pub fn tokenize(s: &str) -> Vec<Token> {
+    // /*DEBUG:*/ eprintln!("Begin tokenization");
     let mut buffer = String::new();
     let mut tokens: Vec<Token> = Vec::new();
 
@@ -181,13 +188,11 @@ pub fn tokenize(s: &str) -> Vec<Token> {
         // unwrap or will make this evalute true if it's the first item in the expression
         match tokens.last().unwrap_or(&Token::Operator(Operator::Add)) {
             Token::Operator(_) | Token::Paren(Paren::Left) => {
-                if buffer.is_empty() && c == '-' {
-                    if buffer.is_empty() {
-                        // /*DEBUG:*/ eprintln!("Unary minus");
-                        tokens.push(Token::Operator(Operator::USub));
-                        idx += 1;
-                        continue;
-                    }
+                if buffer.is_empty() && c == '-' && buffer.is_empty() {
+                    // /*DEBUG:*/ eprintln!("Unary minus");
+                    tokens.push(Token::Operator(Operator::USub));
+                    idx += 1;
+                    continue;
                 }
             },
             _ => ()
@@ -223,6 +228,7 @@ pub fn tokenize(s: &str) -> Vec<Token> {
             .expect("Failed to parse token from buffer")
         );
     }
+    // /*DEBUG*/ eprintln!("End tokenization\n");
 
     tokens
 }
@@ -266,30 +272,43 @@ where
 
 /// Takes an infix notated token stream and converts it to postfix notation
 pub fn shunting_yard(tokens: Vec<Token>) -> Vec<Token> {
+    // /*DEBUG:*/ eprintln!("Begin reverse poilsh conversion");
     let mut output: Vec<Token> = Vec::new();
     let mut opstack: Vec<Token> = Vec::new();
     
     for token in tokens {
+        // /*DEBUG:*/ eprintln!("\nCurrent state:\n\tOperator stack: {:?}\n\tOutput: {:?}", opstack, output);
+        // /*DEBUG:*/ eprint!("Encountered {:?} -> ", token);
         match token {
-            Token::Value(_) => {
+            Token::Value(_v) => {
+                // /*DEBUG:*/ eprintln!("pushing token with value {} to the output", _v);
                 output.push(token);
             },
-            Token::Operator(_) => {
+            Token::Operator(_op) => {
                 let p = precedence(&token);
-                while opstack.len() != 0 {
+                // /*DEBUG:*/ eprintln!("Operator {:?} -> Popping tokens from stack: ", _op);
+                while !opstack.is_empty() {
                     match opstack.last() {
-                        Some(&Token::Paren(_)) => break,
+                        Some(&Token::Paren(_)) => {
+                            // /*DEBUG:*/ eprintln!("\tEncountered paren, breaking");
+                            break
+                        },
                         Some(o) => {
+                            // /*DEBUG:*/ eprint!("\tEncountered operator {} -> ", o);
                             if match OperatorAssociativity::from(&token) {
                                 OperatorAssociativity::Left => {
+                                    // /*DEBUG:*/ eprint!("looking for precedence({}) < {}...", o, p);
                                     precedence(o) < p
                                 },
                                 OperatorAssociativity::Right => {
+                                    // /*DEBUG:*/ eprint!("looking for precedence({}) <= {}...", o, p);
                                     precedence(o) <= p
                                 },
                             } {
+                                // /*DEBUG:*/ eprintln!("Found! Breaking");
                                 break
                             } else {
+                                // /*DEBUG:*/ eprintln!("Not found, popping operator from the stack to the output");
                                 output.push(opstack.pop().unwrap());
                             }
                         },
@@ -299,16 +318,25 @@ pub fn shunting_yard(tokens: Vec<Token>) -> Vec<Token> {
                 opstack.push(token.clone());
             },
             Token::Paren(p) => {
+                // /*DEBUG:*/ eprint!("Encountered paren -> ");
                 match p {
                     Paren::Left => {
+                        // /*DEBUG:*/ eprintln!("Left paren, push to operator stack");
                         opstack.push(token.clone())
                     },
                     Paren::Right => {
-                        while opstack.len() != 0 {
+                        // /*DEBUG:*/ eprintln!("Right paren, popping operator stack to output until we see a left paren");
+                        while !opstack.is_empty() {
                             if let Some(top) = opstack.pop() {
                                 match top {
-                                    Token::Paren(Paren::Left) => break,
-                                    o => output.push(o),
+                                    Token::Paren(Paren::Left) => {
+                                        // /*DEBUG:*/ eprintln!("Encountered left paren, breaking");
+                                        break
+                                    },
+                                    o => {
+                                        // /*DEBUG:*/ eprintln!("\tpopping {} to the output", o);
+                                        output.push(o)
+                                    },
                                 }
                             } else {
                                 unreachable!()
@@ -318,11 +346,16 @@ pub fn shunting_yard(tokens: Vec<Token>) -> Vec<Token> {
                 }
             },
         }
+
     }
 
+    // /*DEBUG:*/ eprintln!("Clearing operator stack");
     while let Some(top) = opstack.pop() {
+        // /*DEBUG:*/ eprintln!("Popping {} to output", top);
         output.push(top);
     }
+
+    // /*DEBUG:*/ eprintln!("\nEnd reverse poilsh conversion\n");
 
     output
 }
@@ -422,4 +455,44 @@ fn test_shunting_yard() {
     ];
 
     assert_eq!(shunting_yard(tokens), expected);
+
+    // unary minus
+    let tokens = tokenize("-10 + 5");
+    let expected = vec![
+        Token::new("10"),
+        Token::new("u"),
+        Token::new("5"),
+        Token::new("+"),
+    ];
+    assert_eq!(shunting_yard(tokens), expected);
+
+}
+
+#[test]
+fn test_operator_evaluate() {
+
+    assert_eq!(Operator::Add.evaluate(1.0 , 10.0), 1.0  + 10.0);
+    assert_eq!(Operator::Add.evaluate(15.0, 15.0), 15.0 + 15.0);
+    assert_eq!(Operator::Add.evaluate(10.0, 20.0), 10.0 + 20.0);
+
+    assert_eq!(Operator::Sub.evaluate(1.0 , 10.0), 1.0  - 10.0);
+    assert_eq!(Operator::Sub.evaluate(15.0, 15.0), 15.0 - 15.0);
+    assert_eq!(Operator::Sub.evaluate(10.0, 20.0), 10.0 - 20.0);
+
+    assert_eq!(Operator::Mul.evaluate(1.0 , 10.0), 1.0  * 10.0);
+    assert_eq!(Operator::Mul.evaluate(15.0, 15.0), 15.0 * 15.0);
+    assert_eq!(Operator::Mul.evaluate(10.0, 20.0), 10.0 * 20.0);
+
+    assert_eq!(Operator::Div.evaluate(1.0 , 10.0), 1.0  / 10.0);
+    assert_eq!(Operator::Div.evaluate(15.0, 15.0), 15.0 / 15.0);
+    assert_eq!(Operator::Div.evaluate(10.0, 20.0), 10.0 / 20.0);
+
+    assert_eq!(Operator::Pow.evaluate(1.0 , 10.0), (1.0 as f64).powf(10.0));
+    assert_eq!(Operator::Pow.evaluate(15.0, 15.0), (15.0 as f64).powf(15.0));
+    assert_eq!(Operator::Pow.evaluate(10.0, 20.0), (10.0 as f64).powf(20.0));
+
+    assert_eq!(Operator::USub.evaluate(0.0 , 10.0), -10.0);
+    assert_eq!(Operator::USub.evaluate(0.0, 15.0), -15.0);
+    assert_eq!(Operator::USub.evaluate(0.0, 10.0), -10.0);
+
 }
