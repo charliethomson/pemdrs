@@ -1,6 +1,7 @@
 
 use std::{
-    str::FromStr,
+    str::{ FromStr },
+    // string::{ ToString },
     fmt::{ Debug, Display, Formatter, Result as fmt_Result }
 };
 
@@ -11,7 +12,8 @@ pub enum Operator {
     Sub,
     Mul,
     Div,
-    Pow
+    Pow,
+    USub,
 } impl Operator {
     pub fn from_char(c: char) -> Option<Self> {
         match c {
@@ -20,6 +22,7 @@ pub enum Operator {
             '*' => Some(Self::Mul),
             '/' => Some(Self::Div),
             '^' => Some(Self::Pow),
+            'u' => Some(Self::USub),
             _ => None,
         }
     }
@@ -31,6 +34,7 @@ pub enum Operator {
             Self::Mul => '*',
             Self::Div => '/',
             Self::Pow => '^',
+            Self::USub => 'u',
         }
     }
 
@@ -41,6 +45,7 @@ pub enum Operator {
             Self::Mul => left * right,
             Self::Div => left / right,
             Self::Pow => left.powf(right),
+            Self::USub => -right,
         }
     }
 } impl FromStr for Operator {
@@ -55,6 +60,10 @@ pub enum Operator {
             Some(n) => Ok(n),
             None => Err("Unknown operator"),
         }
+    }
+} impl ToString for Operator {
+    fn to_string(&self) -> String {
+        format!("{}", self.to_char())
     }
 }
 
@@ -90,6 +99,10 @@ pub enum Paren {
             None => Err("Unknown literal"),
         }
     }
+} impl ToString for Paren {
+    fn to_string(&self) -> String {
+        format!("{}", self.to_char())
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -104,6 +117,7 @@ pub enum Token {
             Err(e) => panic!(e)
         }
     }
+
 } impl FromStr for Token {
     type Err = &'static str;
 
@@ -118,15 +132,24 @@ pub enum Token {
             Err("Unexpected literal")
         }
     } 
+
+
 } impl Display for Token {
     fn fmt(&self, f: &mut Formatter) -> fmt_Result {
         write!(f, "{}", {
             match self {
-                Token::Operator(op) => format!("{}", op.to_char()),
-                Token::Paren(p) => format!("{}", p.to_char()),
-                Token::Value(v) => format!("{}", v)
+                Token::Operator(op) => op.to_string(),
+                Token::Paren(p) => p.to_string(),
+                Token::Value(v) => v.to_string(),
             }
         })
+    }
+} impl Into<f64> for Token {
+    fn into(self) -> f64 {
+        match self {
+            Token::Value(v) => v,
+            _ => panic!("Attempt to coerce non-value Token to f64"),
+        }
     }
 }
 
@@ -152,19 +175,43 @@ pub fn tokenize(s: &str) -> Vec<Token> {
     let mut idx = 0;
 
     while let Some(c) = cleaned.chars().nth(idx) {
+        // /*DEBUG:*/ eprint!("C: {}, IDX: {} -> ", c, idx);
+        
+        // check for unary operators (will always be first or directly following another operator (thanks greg!))
+        // unwrap or will make this evalute true if it's the first item in the expression
+        match tokens.last().unwrap_or(&Token::Operator(Operator::Add)) {
+            Token::Operator(_) | Token::Paren(Paren::Left) => {
+                if buffer.is_empty() && c == '-' {
+                    if buffer.is_empty() {
+                        // /*DEBUG:*/ eprintln!("Unary minus");
+                        tokens.push(Token::Operator(Operator::USub));
+                        idx += 1;
+                        continue;
+                    }
+                }
+            },
+            _ => ()
+        }
+
+        // c is a number (0-9 or .), push it to the buffer
         if c.is_numeric() || c == '.' {
+            // /*DEBUG:*/ eprintln!("Number: {}", c);
             buffer.push(c);
-        } else if !buffer.is_empty() {
-            tokens.push(buffer
-                    .parse()
-                    .expect("Failed to parse token from buffer")
-                );
+        }
+        // if c is not a number, but there is something in the buffer, push the buffer to output
+        else if !buffer.is_empty() {
+            // /*DEBUG:*/ eprintln!("Commit number: {}", buffer);
+            tokens.push(buffer.parse().expect(&format!("Failed to parse buffer: {:?}", buffer)));
             buffer = String::new();
             idx -= 1;
-        } else if let Ok(token) = c.to_string().parse() {
-            tokens.push(token);
-        } else {
-            panic!("Encountered unexpected character '{}'", c);
+        }
+        // Handle operators and parens normally
+        else if let Some(op) = Operator::from_char(c) {
+            // /*DEBUG:*/ eprintln!("Operator: {:?}", op);
+            tokens.push(Token::Operator(op));
+        } else if let Some(p) = Paren::from_char(c) {
+            // /*DEBUG:*/ eprintln!("Paren: {:?}", p);
+            tokens.push(Token::Paren(p));
         }
 
         idx += 1;
@@ -180,121 +227,105 @@ pub fn tokenize(s: &str) -> Vec<Token> {
     tokens
 }
 
-#[derive(Clone, Copy, PartialEq)]
-enum OpWrapper {
-    Operator(Operator),
-    Paren(Paren),
-} impl OpWrapper {
-    fn to_token(self) -> Token {
-        match self {
-            OpWrapper::Operator(op) => Token::Operator(op),
-            OpWrapper::Paren(p) => Token::Paren(p),
-        }
-    }
-} impl From<Operator> for OpWrapper {
-    fn from(op: Operator) -> Self {
-        OpWrapper::Operator(op)
-    }
-} impl From<Paren> for OpWrapper {
-    fn from(p: Paren) -> Self {
-        OpWrapper::Paren(p)
-    }
-}
-
-
-fn precedence(op: &OpWrapper) -> u32 {
-    match op {
-        OpWrapper::Operator(o) => {
+fn precedence(token: &Token) -> u32 {
+    match token {
+        Token::Operator(o) => {
             match o {
                 Operator::Add => 2,
                 Operator::Sub => 2,
                 Operator::Mul => 3,
                 Operator::Div => 3,
                 Operator::Pow => 4,
+                Operator::USub => 5,
             }
-        }, 
-        _ => 0
-        
+        },
+        _ => 0,
     }
 }
 
 #[derive(Copy, Clone, PartialEq)]
 enum OperatorAssociativity {
     Left, Right
-} impl From<OpWrapper> for OperatorAssociativity {
-    fn from(op: OpWrapper) -> Self {
-        match op {
-            OpWrapper::Operator(Operator::Pow) => OperatorAssociativity::Right,
+} impl From<Token> for OperatorAssociativity {
+    fn from(token: Token) -> Self {
+        match token {
+            Token::Operator(Operator::Pow) | Token::Operator(Operator::USub) => OperatorAssociativity::Right,
             _ => OperatorAssociativity::Left,
         }
     }
-} impl<T> From<&T> for OperatorAssociativity where T: Clone, OperatorAssociativity: From<T> {
+} impl<T> From<&T> for OperatorAssociativity 
+where 
+    T: Clone,
+    OperatorAssociativity: From<T>
+{
     fn from(v: &T) -> Self {
         Self::from(v.clone())
     }
 }
 
+
+/// Takes an infix notated token stream and converts it to postfix notation
 pub fn shunting_yard(tokens: Vec<Token>) -> Vec<Token> {
     let mut output: Vec<Token> = Vec::new();
-    let mut opstack: Vec<OpWrapper> = Vec::new();
+    let mut opstack: Vec<Token> = Vec::new();
     
     for token in tokens {
         match token {
             Token::Value(_) => {
                 output.push(token);
             },
-            Token::Operator(op) => {
-                while 
-                    !opstack.is_empty() 
-                    &&
-                    (
-                        precedence(&OpWrapper::from(op)) < precedence(opstack.last().unwrap())
-                        ||
-                        (
-                            precedence(&OpWrapper::from(op)) == precedence(opstack.last().unwrap()) 
-                            && 
-                            OperatorAssociativity::from(opstack.last().unwrap()) == OperatorAssociativity::Left
-                        )
-                        &&
-                        (opstack.last().unwrap() != &OpWrapper::Paren(Paren::Left)
-                    )
-                ) {
-                        output.push(opstack.pop().unwrap().to_token())
+            Token::Operator(_) => {
+                let p = precedence(&token);
+                while opstack.len() != 0 {
+                    match opstack.last() {
+                        Some(&Token::Paren(_)) => break,
+                        Some(o) => {
+                            if match OperatorAssociativity::from(&token) {
+                                OperatorAssociativity::Left => {
+                                    precedence(o) < p
+                                },
+                                OperatorAssociativity::Right => {
+                                    precedence(o) <= p
+                                },
+                            } {
+                                break
+                            } else {
+                                output.push(opstack.pop().unwrap());
+                            }
+                        },
+                        _ => unreachable!()
+                    }
                 }
-
-                opstack.push(OpWrapper::from(op));
+                opstack.push(token.clone());
             },
             Token::Paren(p) => {
                 match p {
-                    Paren::Left => opstack.push(OpWrapper::from(p)),
+                    Paren::Left => {
+                        opstack.push(token.clone())
+                    },
                     Paren::Right => {
-                        while opstack.last().expect("Mismatched parens") != &OpWrapper::Paren(Paren::Left) {
-                            output.push(opstack.pop().unwrap().to_token());
+                        while opstack.len() != 0 {
+                            if let Some(top) = opstack.pop() {
+                                match top {
+                                    Token::Paren(Paren::Left) => break,
+                                    o => output.push(o),
+                                }
+                            } else {
+                                unreachable!()
+                            }
                         }
-
-                        opstack.pop();
-                    }
-                };
-
+                    },
+                }
             },
         }
     }
 
-    while !opstack.is_empty() {
-        match opstack.pop().unwrap() {
-            OpWrapper::Paren(_) => {
-                panic!("Mismatched parens!");
-            },
-            a => {
-                output.push(a.to_token())
-            }
-        }
+    while let Some(top) = opstack.pop() {
+        output.push(top);
     }
 
     output
 }
-
-
 
 #[test]
 fn test_tokenize() {
@@ -337,6 +368,17 @@ fn test_tokenize() {
         Token::new("5"),
     ];
     assert!(tokens == tokenize("10.0 + 5"));
+
+    // Unary minus
+    let tokens = vec![
+        Token::new("u"),
+        Token::new("10"),
+        Token::new("+"),
+        Token::new("u"),
+        Token::new("5"),
+    ];
+    assert!(tokens == tokenize("-10 + -5"));
+    
 }   
 
 #[test]
@@ -357,6 +399,27 @@ fn test_shunting_yard() {
         Token::new("/"),
         Token::new("+"),
     ];
+
     assert_eq!(shunting_yard(tokens), expected);
 
+    let tokens = tokenize("((15 / (7 -(1 + 1))) * 3) - (2 + (1 + 1))");
+    let expected = vec![
+        Token::new("15"),
+        Token::new("7"),
+        Token::new("1"),
+        Token::new("1"),
+        Token::new("+"),
+        Token::new("-"),
+        Token::new("/"),
+        Token::new("3"),
+        Token::new("*"),
+        Token::new("2"),
+        Token::new("1"),
+        Token::new("1"),
+        Token::new("+"),
+        Token::new("+"),
+        Token::new("-"),
+    ];
+
+    assert_eq!(shunting_yard(tokens), expected);
 }
