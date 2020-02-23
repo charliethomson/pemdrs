@@ -84,15 +84,11 @@ struct Node {
 struct Tree {
     root: Node,
 } impl Tree {
-    fn new(s: &str) -> Self {
-        shunting_yard(tokenize(s)).into()
+    fn new(s: &str) -> Result<Self, String> {
+        Self::from_vec(shunting_yard(tokenize(s)))
     }
 
-    fn evaluate(&self) -> f64 {
-        self.root.evaluate()
-    }
-} impl From<Vec<Token>> for Tree {
-    fn from(stream: Vec<Token>) -> Self {
+    fn from_vec(stream: Vec<Token>) -> Result<Self, String> {
         let mut stack: Vec<Node> = Vec::new();
 
         for token in stream {
@@ -102,14 +98,20 @@ struct Tree {
                     match op {
                         Operator::USub => {
                             let mut node: Node = token.clone().into();
-                            let value = stack.pop().expect("Unable to pop from empty stack");
+                            let value = match stack.pop() {
+                                Some(v) => v,
+                                None => return Err("You seem to have an unbalanced tree :(".to_owned())
+                            };
                             node.right = Some(Box::new(value));
                             stack.push(node);
                         },
                         _ => {
                             let mut node: Node = token.clone().into();
-                            let a: Node = stack.pop().expect("Stack shouldn't be empty? :(");
-                            let b: Node = stack.pop().expect("Stack shouldn't be empty? :(");
+                            let (a, b) = match (stack.pop(), stack.pop()) {
+                                (Some(a), Some(b)) => (a, b),
+                                _ => return Err("You seem to have an unbalanced tree :(".to_owned())
+
+                            };
                             node.right = Some(Box::new(a));
                             node.left = Some(Box::new(b));
                             stack.push(node);
@@ -120,9 +122,14 @@ struct Tree {
             }
         }
 
-        Tree {
-            root: stack.pop().expect("Empty string? maybe? (stack empty)")
+        match stack.pop() {
+            Some(root) => Ok(Tree { root }),
+            None => Err("Empty string? maybe? (stack empty)".to_owned())
         }
+    }
+
+    fn evaluate(&self) -> f64 {
+        self.root.evaluate()
     }
 } impl Debug for Tree {
     fn fmt(&self, f: &mut Formatter) -> fmt_Result {
@@ -169,8 +176,8 @@ fn test_tree_evaluate() {
     
     for (problem, answer) in problems.iter() {
 
-        // eprintln!("Evaluating {}; expectms: u32ed: {}", problem, answer);
-        let tree = Tree::new(problem);
+        // eprintln!("Evaluating {}; expected: {}", problem, answer);
+        let tree = Tree::new(problem).unwrap();
         assert_eq!(&tree.evaluate(), answer);
 
         /* // DEBUG
@@ -185,5 +192,12 @@ fn test_tree_evaluate() {
             tree.root.right.as_ref().unwrap().depth(),
         )
         */
+    }
+}
+
+pub fn evaluate(s: String) -> Result<f64, String> {
+    match Tree::new(&s) {
+        Ok(tree) => Ok(tree.evaluate()),
+        Err(e) => Err(e)
     }
 }

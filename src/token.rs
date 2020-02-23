@@ -2,9 +2,12 @@
 use std::{
     str::{ FromStr },
     // string::{ ToString },
-    fmt::{ Debug, Display, Formatter, Result as fmt_Result }
+    fmt::{ Debug, Display, Formatter, Result as fmt_Result },
+    collections::HashMap,
+    
 };
 
+use maplit::hashmap;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Operator {
@@ -172,7 +175,8 @@ pub enum Token {
 /// ```
 pub fn tokenize(s: &str) -> Vec<Token> {
     // /*DEBUG:*/ eprintln!("Begin tokenization");
-    let mut buffer = String::new();
+    let mut nbuffer = String::new();
+    let mut fbuffer = String::new();
     let mut tokens: Vec<Token> = Vec::new();
 
     let cleaned = s.chars()
@@ -188,7 +192,7 @@ pub fn tokenize(s: &str) -> Vec<Token> {
         // unwrap or will make this evalute true if it's the first item in the expression
         match tokens.last().unwrap_or(&Token::Operator(Operator::Add)) {
             Token::Operator(_) | Token::Paren(Paren::Left) => {
-                if buffer.is_empty() && c == '-' && buffer.is_empty() {
+                if nbuffer.is_empty() && c == '-' && nbuffer.is_empty() {
                     // /*DEBUG:*/ eprintln!("Unary minus");
                     tokens.push(Token::Operator(Operator::USub));
                     idx += 1;
@@ -201,13 +205,16 @@ pub fn tokenize(s: &str) -> Vec<Token> {
         // c is a number (0-9 or .), push it to the buffer
         if c.is_numeric() || c == '.' {
             // /*DEBUG:*/ eprintln!("Number: {}", c);
-            buffer.push(c);
+            if c == '.' && nbuffer.contains('.') {
+                panic!("why would a number with two decimals work")
+            }
+            nbuffer.push(c);
         }
         // if c is not a number, but there is something in the buffer, push the buffer to output
-        else if !buffer.is_empty() {
+        else if !nbuffer.is_empty() {
             // /*DEBUG:*/ eprintln!("Commit number: {}", buffer);
-            tokens.push(buffer.parse().expect(&format!("Failed to parse buffer: {:?}", buffer)));
-            buffer = String::new();
+            tokens.push(nbuffer.parse().expect(&format!("Failed to parse buffer: {:?}", nbuffer)));
+            nbuffer = String::new();
             idx -= 1;
         }
         // Handle operators and parens normally
@@ -218,12 +225,26 @@ pub fn tokenize(s: &str) -> Vec<Token> {
             // /*DEBUG:*/ eprintln!("Paren: {:?}", p);
             tokens.push(Token::Paren(p));
         }
+        else if c.is_ascii_alphabetic() {
+            fbuffer.push(c);
+        } else if !fbuffer.is_empty() {
+            // tokens.push(
+            //     Token::Function(
+            //         FUNCTIONS
+            //             .get(fbuffer.as_str())
+            //             .expect(&format!("Unknown function or identifier {:?}", fbuffer)
+            //         )
+            //     )
+            // );
+            fbuffer = String::new();
+            idx -= 1;
+        }
 
         idx += 1;
     }
     
-    if !buffer.is_empty() {
-        tokens.push(buffer
+    if !nbuffer.is_empty() {
+        tokens.push(nbuffer
             .parse()
             .expect("Failed to parse token from buffer")
         );
@@ -495,4 +516,12 @@ fn test_operator_evaluate() {
     assert_eq!(Operator::USub.evaluate(0.0, 15.0), -15.0);
     assert_eq!(Operator::USub.evaluate(0.0, 10.0), -10.0);
 
+}
+
+#[test]
+fn test_function_call() {
+    std::thread::sleep_ms(100);
+    
+    let foo = Function::new("foo".to_owned(), vec!["a".to_owned(), "b".to_owned()], 2, "2 * a + b".to_owned());
+    println!("foo.call() -> {}", foo.call(vec!["10".to_owned(), "11".to_owned()]));
 }
