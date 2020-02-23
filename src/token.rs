@@ -3,11 +3,22 @@ use std::{
     str::{ FromStr },
     // string::{ ToString },
     fmt::{ Debug, Display, Formatter, Result as fmt_Result },
-    collections::HashMap,
-    
 };
 
-use maplit::hashmap;
+use crate::function::Function;
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum Keyword {
+    Var,
+    Function,
+} impl Display for Keyword {
+    fn fmt(&self, f: &mut Formatter) -> fmt_Result {
+        write!(f, "{}", match self {
+            Self::Var => "var",
+            Self::Function => "function",
+        })
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Operator {
@@ -17,6 +28,7 @@ pub enum Operator {
     Div,
     Pow,
     USub,
+    Assign,
 } impl Operator {
     pub fn from_char(c: char) -> Option<Self> {
         match c {
@@ -26,6 +38,7 @@ pub enum Operator {
             '/' => Some(Self::Div),
             '^' => Some(Self::Pow),
             'u' => Some(Self::USub),
+            '=' => Some(Self::Assign),
             _ => None,
         }
     }
@@ -38,6 +51,7 @@ pub enum Operator {
             Self::Div => '/',
             Self::Pow => '^',
             Self::USub => 'u',
+            Self::Assign => '=',
         }
     }
 
@@ -55,6 +69,7 @@ pub enum Operator {
             },
             Self::Pow => left.powf(right),
             Self::USub => -right,
+            Self::Assign => panic!("evaluate shouldn't be called on Operator::Assign"),
         }
     }
 } impl FromStr for Operator {
@@ -114,11 +129,14 @@ pub enum Paren {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum Token {
     Operator(Operator),
     Value(f64),
     Paren(Paren),
+    Keyword(Keyword),
+    Function(Function),
+    Identifier(String),
 } impl Token {
     pub fn new(literal: &str) -> Self {
         match literal.parse::<Token>() {
@@ -150,6 +168,8 @@ pub enum Token {
                 Token::Operator(op) => op.to_string(),
                 Token::Paren(p) => p.to_string(),
                 Token::Value(v) => v.to_string(),
+                Token::Keyword(kw) => format!("{}", kw),
+                Token::Function(f) => format!("{}", f),
             }
         })
     }
@@ -179,13 +199,10 @@ pub fn tokenize(s: &str) -> Vec<Token> {
     let mut fbuffer = String::new();
     let mut tokens: Vec<Token> = Vec::new();
 
-    let cleaned = s.chars()
-                .filter(|&c| ".0123456789/*-+^()".contains(c))
-                .collect::<String>();
 
     let mut idx = 0;
 
-    while let Some(c) = cleaned.chars().nth(idx) {
+    while let Some(c) = s.chars().nth(idx) {
         // /*DEBUG:*/ eprint!("C: {}, IDX: {} -> ", c, idx);
         
         // check for unary operators (will always be first or directly following another operator (thanks greg!))
@@ -202,6 +219,7 @@ pub fn tokenize(s: &str) -> Vec<Token> {
             _ => ()
         }
 
+
         // c is a number (0-9 or .), push it to the buffer
         if c.is_numeric() || c == '.' {
             // /*DEBUG:*/ eprintln!("Number: {}", c);
@@ -217,6 +235,7 @@ pub fn tokenize(s: &str) -> Vec<Token> {
             nbuffer = String::new();
             idx -= 1;
         }
+        // Check for a function or identifier
         // Handle operators and parens normally
         else if let Some(op) = Operator::from_char(c) {
             // /*DEBUG:*/ eprintln!("Operator: {:?}", op);
@@ -264,6 +283,7 @@ fn precedence(token: &Token) -> u32 {
                 Operator::Div => 3,
                 Operator::Pow => 4,
                 Operator::USub => 5,
+                Operator::Assign => 6,
             }
         },
         _ => 0,
@@ -366,6 +386,12 @@ pub fn shunting_yard(tokens: Vec<Token>) -> Vec<Token> {
                     },
                 }
             },
+            Token::Function(f) => {
+
+            },
+            Token::Keyword(kw) => {
+
+            }
         }
 
     }
@@ -516,12 +542,4 @@ fn test_operator_evaluate() {
     assert_eq!(Operator::USub.evaluate(0.0, 15.0), -15.0);
     assert_eq!(Operator::USub.evaluate(0.0, 10.0), -10.0);
 
-}
-
-#[test]
-fn test_function_call() {
-    std::thread::sleep_ms(100);
-    
-    let foo = Function::new("foo".to_owned(), vec!["a".to_owned(), "b".to_owned()], 2, "2 * a + b".to_owned());
-    println!("foo.call() -> {}", foo.call(vec!["10".to_owned(), "11".to_owned()]));
 }
