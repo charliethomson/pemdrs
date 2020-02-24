@@ -1,6 +1,6 @@
 
 use crate::token::{ Token, Operator, shunting_yard, tokenize };
-
+use crate::interpreter::Context;
 use std::{
     fmt::{ Display, Debug, Formatter, Result as fmt_Result },
     collections::HashMap,
@@ -85,10 +85,10 @@ struct Tree {
     root: Node,
 } impl Tree {
     fn new(s: &str) -> Result<Self, String> {
-        Self::from_vec(shunting_yard(tokenize(s)))
+        Self::from_vec(shunting_yard(tokenize(s, &mut Context::new())?), &mut Context::new())
     }
 
-    fn from_vec(stream: Vec<Token>) -> Result<Self, String> {
+    fn from_vec(stream: Vec<Token>, ctx: &mut Context) -> Result<Self, String> {
         let mut stack: Vec<Node> = Vec::new();
 
         for token in stream {
@@ -195,8 +195,8 @@ fn test_tree_evaluate() {
     }
 }
 
-pub fn evaluate(s: String) -> Result<f64, String> {
-    match Tree::new(&s) {
+pub fn evaluate(tokens: &Vec<Token>, ctx: &mut Context) -> Result<f64, String> {
+    match Tree::from_vec(tokens.clone(), ctx) {
         Ok(tree) => Ok(tree.evaluate()),
         Err(e) => Err(e)
     }

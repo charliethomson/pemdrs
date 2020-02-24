@@ -6,19 +6,28 @@ use std::{
 };
 
 use crate::function::Function;
+use crate::interpreter::Context;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Keyword {
     Var,
     Function,
-} impl Display for Keyword {
+} impl Keyword {
+    fn from_str(s: String) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "var" | "let" => Some(Self::Var),
+            "fn" | "func" | "function" => Some(Self::Function),
+            _ => None
+        }
+    }
+}impl Display for Keyword {
     fn fmt(&self, f: &mut Formatter) -> fmt_Result {
         write!(f, "{}", match self {
             Self::Var => "var",
             Self::Function => "function",
         })
     }
-}
+} 
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Operator {
@@ -37,7 +46,7 @@ pub enum Operator {
             '*' => Some(Self::Mul),
             '/' => Some(Self::Div),
             '^' => Some(Self::Pow),
-            'u' => Some(Self::USub),
+            '#' => Some(Self::USub),
             '=' => Some(Self::Assign),
             _ => None,
         }
@@ -50,7 +59,7 @@ pub enum Operator {
             Self::Mul => '*',
             Self::Div => '/',
             Self::Pow => '^',
-            Self::USub => 'u',
+            Self::USub => '#',
             Self::Assign => '=',
         }
     }
@@ -137,6 +146,7 @@ pub enum Token {
     Keyword(Keyword),
     Function(Function),
     Identifier(String),
+    Data(String),
 } impl Token {
     pub fn new(literal: &str) -> Self {
         match literal.parse::<Token>() {
@@ -146,7 +156,7 @@ pub enum Token {
     }
 
 } impl FromStr for Token {
-    type Err = &'static str;
+    type Err = String;
 
     fn from_str(s: &str) -> Result<Token, Self::Err> {
         if let Ok(v) = s.parse::<f64>() {
@@ -156,7 +166,7 @@ pub enum Token {
         } else if let Ok(p) = s.parse::<Paren>() {
             Ok(Token::Paren(p))
         } else {
-            Err("Unexpected literal")
+            Err(format!("Unexpected literal {}", s))
         }
     } 
 
@@ -170,6 +180,8 @@ pub enum Token {
                 Token::Value(v) => v.to_string(),
                 Token::Keyword(kw) => format!("{}", kw),
                 Token::Function(f) => format!("{}", f),
+                Token::Data(d) => format!("DATA_TOK: {:?}", d),
+                Token::Identifier(id) => format!("{}", id),
             }
         })
     }
@@ -182,35 +194,26 @@ pub enum Token {
     }
 }
 
-/// Parse the string `s` into a Token stream
-/// ```rust
-/// let tokens = vec![
-///     Token::new("("),
-///     Token::new("10"),
-///     Token::new("+"),
-///     Token::new("5"),
-///     Token::new(")"),
-/// ];
-/// assert!(tokens == tokenize("(10+5)"));
-/// ```
-pub fn tokenize(s: &str) -> Vec<Token> {
-    // /*DEBUG:*/ eprintln!("Begin tokenization");
+
+pub fn tokenize(s: &str, ctx: &mut Context) -> Result<Vec<Token>, String> {
+
     let mut nbuffer = String::new();
-    let mut fbuffer = String::new();
-    let mut tokens: Vec<Token> = Vec::new();
-
-
+    let mut idbuffer = String::new();
     let mut idx = 0;
+    let mut decl = Declaration::None;
+    let mut tokens = Vec::new();
+    let mut fnident = String::new();
+    let mut argidents: Vec<String> = Vec::new();
+    let mut varident = String::new();
 
     while let Some(c) = s.chars().nth(idx) {
-        // /*DEBUG:*/ eprint!("C: {}, IDX: {} -> ", c, idx);
-        
+
+
         // check for unary operators (will always be first or directly following another operator (thanks greg!))
         // unwrap or will make this evalute true if it's the first item in the expression
         match tokens.last().unwrap_or(&Token::Operator(Operator::Add)) {
             Token::Operator(_) | Token::Paren(Paren::Left) => {
-                if nbuffer.is_empty() && c == '-' && nbuffer.is_empty() {
-                    // /*DEBUG:*/ eprintln!("Unary minus");
+                if nbuffer.is_empty() && c == '-' {
                     tokens.push(Token::Operator(Operator::USub));
                     idx += 1;
                     continue;
@@ -220,57 +223,129 @@ pub fn tokenize(s: &str) -> Vec<Token> {
         }
 
 
-        // c is a number (0-9 or .), push it to the buffer
+
+        // put numbers into the buffer
         if c.is_numeric() || c == '.' {
-            // /*DEBUG:*/ eprintln!("Number: {}", c);
             if c == '.' && nbuffer.contains('.') {
-                panic!("why would a number with two decimals work")
+                return Err(format!("Encountered unexpected '.' when parsing {}", nbuffer));
+            } else {
+                nbuffer.push(c);
             }
-            nbuffer.push(c);
         }
-        // if c is not a number, but there is something in the buffer, push the buffer to output
+        // make a token from the buffer, add it, clear the buffer
         else if !nbuffer.is_empty() {
-            // /*DEBUG:*/ eprintln!("Commit number: {}", buffer);
-            tokens.push(nbuffer.parse().expect(&format!("Failed to parse buffer: {:?}", nbuffer)));
+            match nbuffer.parse::<f64>() {
+                Ok(f) => {
+                    tokens.push(Token::Value(f))
+                },
+                Err(e) => unreachable!()
+            }
             nbuffer = String::new();
-            idx -= 1;
         }
-        // Check for a function or identifier
-        // Handle operators and parens normally
+        // put characters in the identifier buffer
+        else if c.is_ascii_alphabetic() {
+            idbuffer.push(c);
+        }
+        // make a declaration type from the buffer, handle the rest of the input accordingly
+        else if !idbuffer.is_empty() {
+            if let Some(kw) = Keyword::from_str(idbuffer.clone()) {
+                match kw {
+                    Keyword::Function => decl = Declaration::Function,
+                    Keyword::Var => decl = Declaration::Variable,
+                }
+                idbuffer = String::new();
+            } else {
+                match decl {
+                    Declaration::Function => {
+                        // if fnident is none, assign it,
+                        if fnident.is_empty() {
+                            fnident = idbuffer;
+                            idbuffer = String::new();
+                        }
+                        // otherwise, check with argidents,
+                        else {
+                            // if the identifier is already there, add the same token again,
+                            if argidents.contains(&idbuffer) {
+                                tokens.push(Token::Identifier(idbuffer));
+                                idbuffer = String::new();
+                            }
+                            // otherwise, add it to the argidents
+                            else {
+                                // if we're past the equals sign, raise a variableundefined error
+                                if tokens.contains(&Token::Operator(Operator::Assign)) {
+                                    return Err(format!("Encountered undefined variable {:?}", idbuffer));                                }
+                                else {
+                                    argidents.push(idbuffer);
+                                    idbuffer = String::new();
+                                }
+                            }
+                        }
+                        // these will become the `Function`s `local_idents`
+                    },
+                    Declaration::Variable => {
+                        // if varident is none, assign it,
+                        if varident.is_empty() {
+                            varident = idbuffer;
+                            idbuffer = String::new();
+                        }
+                        // otherwise, check with the already assigned functions and variables to see if it exists already,
+                        else if let Some(func) = ctx.functions.get(&idbuffer) {
+                            tokens.push(Token::Function(func.clone()));
+                            idbuffer = String::new();
+                        } else if argidents.contains(&idbuffer) || ctx.variables.contains_key(&idbuffer) {
+                            tokens.push(Token::Identifier(idbuffer));
+                            idbuffer = String::new();
+                        }
+                        // if not, return a variableundefined error.
+                        else {
+                            return Err(format!("Encountered undefined variable {:?}", idbuffer));
+                        }
+                    },
+                    Declaration::None => {
+                        // check if the identifier is registered, if not, raise a variableundefined error.
+                        if argidents.contains(&idbuffer) || ctx.variables.contains_key(&idbuffer) {
+                            tokens.push(Token::Identifier(idbuffer));
+                            idbuffer = String::new();
+                        }
+                    }
+                }
+            }
+        }
+        // check for operators, parens
         else if let Some(op) = Operator::from_char(c) {
-            // /*DEBUG:*/ eprintln!("Operator: {:?}", op);
             tokens.push(Token::Operator(op));
-        } else if let Some(p) = Paren::from_char(c) {
-            // /*DEBUG:*/ eprintln!("Paren: {:?}", p);
+        }
+        else if let Some(p) = Paren::from_char(c) {
             tokens.push(Token::Paren(p));
         }
-        else if c.is_ascii_alphabetic() {
-            fbuffer.push(c);
-        } else if !fbuffer.is_empty() {
-            // tokens.push(
-            //     Token::Function(
-            //         FUNCTIONS
-            //             .get(fbuffer.as_str())
-            //             .expect(&format!("Unknown function or identifier {:?}", fbuffer)
-            //         )
-            //     )
-            // );
-            fbuffer = String::new();
-            idx -= 1;
-        }
-
-        idx += 1;
+        // increment the pointer
+        idx += 1;    
     }
+
+    eprintln!("tokens: {:?}, idbuffer: {}, nbuffer: {}, decl: {:?}", tokens, idbuffer, nbuffer, decl);
+
+    // check the buffers for missed tokens
+    if !idbuffer.is_empty() {
+        if let Some(func) = ctx.functions.get(&idbuffer) {
+            tokens.push(Token::Function(func.clone()));
+        } else if ctx.variables.contains_key(&idbuffer) || argidents.contains(&idbuffer) {
+            tokens.push(Token::Identifier(idbuffer.clone()));
+        }
+    } 
+
     
     if !nbuffer.is_empty() {
-        tokens.push(nbuffer
-            .parse()
-            .expect("Failed to parse token from buffer")
-        );
+        match nbuffer.parse::<f64>() {
+            Ok(f) => {
+                tokens.push(Token::Value(f))
+            },
+            Err(e) => unreachable!()
+        }
     }
-    // /*DEBUG*/ eprintln!("End tokenization\n");
-
-    tokens
+    eprintln!("tokens: {:?}, idbuffer: {}, nbuffer: {}, decl: {:?}", tokens, idbuffer, nbuffer, decl);
+    
+    
+    Ok(tokens)
 }
 
 fn precedence(token: &Token) -> u32 {
@@ -308,6 +383,13 @@ where
     fn from(v: &T) -> Self {
         Self::from(v.clone())
     }
+}
+
+#[derive(Debug)]
+enum Declaration {
+    Function,
+    Variable,
+    None,
 }
 
 
@@ -389,9 +471,7 @@ pub fn shunting_yard(tokens: Vec<Token>) -> Vec<Token> {
             Token::Function(f) => {
 
             },
-            Token::Keyword(kw) => {
-
-            }
+            _ => unreachable!()
         }
 
     }
@@ -417,7 +497,8 @@ fn test_tokenize() {
         Token::new("5"),
         Token::new(")"),
     ];
-    assert!(tokens == tokenize("(10+5)"));
+    eprintln!(" left: {:?}\nright: {:?}", tokens, tokenize("(10+5)", &mut Context::new()).unwrap());
+    assert!(tokens == tokenize("(10+5)", &mut Context::new()).unwrap());
 
     // Complex
     let tokens = vec![
@@ -439,7 +520,7 @@ fn test_tokenize() {
         Token::new("2"),
         Token::new(")"),
     ];
-    assert!(tokens == tokenize("((10.0 * 2) / 4 + (2.5 * 4) * 2)"));
+    assert!(tokens == tokenize("((10.0 * 2) / 4 + (2.5 * 4) * 2)", &mut Context::new()).unwrap());
 
     // No parens
     let tokens = vec![
@@ -447,23 +528,23 @@ fn test_tokenize() {
         Token::new("+"),
         Token::new("5"),
     ];
-    assert!(tokens == tokenize("10.0 + 5"));
+    assert!(tokens == tokenize("10.0 + 5", &mut Context::new()).unwrap());
 
     // Unary minus
     let tokens = vec![
-        Token::new("u"),
+        Token::new("#"),
         Token::new("10"),
         Token::new("+"),
-        Token::new("u"),
+        Token::new("#"),
         Token::new("5"),
     ];
-    assert!(tokens == tokenize("-10 + -5"));
+    assert!(tokens == tokenize("-10 + -5", &mut Context::new()).unwrap());
     
 }   
 
 #[test]
 fn test_shunting_yard() {
-    let tokens = tokenize("3 + 4 * 2 / ( 1 - 5 ) ^ 2 ^ 3");
+    let tokens = tokenize("3 + 4 * 2 / ( 1 - 5 ) ^ 2 ^ 3", &mut Context::new()).unwrap();
     let expected = vec![
         Token::new("3"),
         Token::new("4"),
@@ -482,7 +563,7 @@ fn test_shunting_yard() {
 
     assert_eq!(shunting_yard(tokens), expected);
 
-    let tokens = tokenize("((15 / (7 -(1 + 1))) * 3) - (2 + (1 + 1))");
+    let tokens = tokenize("((15 / (7 -(1 + 1))) * 3) - (2 + (1 + 1))", &mut Context::new()).unwrap();
     let expected = vec![
         Token::new("15"),
         Token::new("7"),
@@ -504,10 +585,10 @@ fn test_shunting_yard() {
     assert_eq!(shunting_yard(tokens), expected);
 
     // unary minus
-    let tokens = tokenize("-10 + 5");
+    let tokens = tokenize("-10 + 5", &mut Context::new()).unwrap();
     let expected = vec![
         Token::new("10"),
-        Token::new("u"),
+        Token::new("#"),
         Token::new("5"),
         Token::new("+"),
     ];

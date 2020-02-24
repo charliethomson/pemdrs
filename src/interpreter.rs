@@ -7,6 +7,7 @@ use {
     crate::{
         function::Function,
         tree::evaluate,
+        token::Token,
     },
     regex::{ Regex },
 };
@@ -124,15 +125,15 @@ pub struct Interpreter {
             }
             // evaluate the expression
             else {
-                let eval = match evaluate(cmd.clone()) {
-                    Ok(e) => e,
-                    Err(e) => {
-                        println!("Error: {}", e);
-                        continue;
-                    },
-                };
-                self.context.ans = eval;
-                println!("{}", eval);
+                // let eval = match evaluate(cmd.clone()) {
+                //     Ok(e) => e,
+                //     Err(e) => {
+                //         println!("Error: {}", e);
+                //         continue;
+                //     },
+                // };
+                // self.context.ans = eval;
+                // println!("{}", eval);
             }
 
 
@@ -149,57 +150,66 @@ pub struct Interpreter {
 }
 
 pub struct Context {
-    functions: HashMap<String, Function>,
-    variables: HashMap<String, f64>,
-    ans: f64,
+    pub(crate) functions: HashMap<String, Function>,
+    pub(crate) variables: HashMap<String, f64>,
+    pub(crate) ans: f64,
 } impl Context {
-    fn new() -> Self {
+    pub fn new() -> Self {
         let mut functions = HashMap::new();
 
         functions.insert("sin".to_owned(), Function {
             ident: "sin".to_owned(),
             args: vec!["_".to_owned()],
-            code: "##sin".to_owned(),
+            code: vec![Token::Data("##sin".to_owned())],
+            local_idents: vec![]
         });
         functions.insert("cos".to_owned(), Function {
             ident: "cos".to_owned(),
             args: vec!["_".to_owned()],
-            code: "##cos".to_owned(),
+            code: vec![Token::Data("##cos".to_owned())],
+            local_idents: vec![]
         });
         functions.insert("tan".to_owned(), Function {
             ident: "tan".to_owned(),
             args: vec!["_".to_owned()],
-            code: "##tan".to_owned(),
+            code: vec![Token::Data("##tan".to_owned())],
+            local_idents: vec![]
         });
         functions.insert("asin".to_owned(), Function {
             ident: "asin".to_owned(),
             args: vec!["_".to_owned()],
-            code: "##asin".to_owned(),
+            code: vec![Token::Data("##asin".to_owned())],
+            local_idents: vec![]
         });
         functions.insert("acos".to_owned(), Function {
             ident: "acos".to_owned(),
             args: vec!["_".to_owned()],
-            code: "##acos".to_owned(),
+            code: vec![Token::Data("##acos".to_owned())],
+            local_idents: vec![]
         });
         functions.insert("atan".to_owned(), Function {
             ident: "atan".to_owned(),
             args: vec!["_".to_owned()],
-            code: "##atan".to_owned(),
+            code: vec![Token::Data("##atan".to_owned())],
+            local_idents: vec![]
         });
         functions.insert("min".to_owned(), Function {
             ident: "min".to_owned(),
             args: vec!["_".to_owned(), "_".to_owned()],
-            code: "##min".to_owned(),
+            code: vec![Token::Data("##min".to_owned())],
+            local_idents: vec![]
         });
         functions.insert("max".to_owned(), Function {
             ident: "max".to_owned(),
             args: vec!["_".to_owned(), "_".to_owned()],
-            code: "##max".to_owned(),
+            code: vec![Token::Data("##max".to_owned())],
+            local_idents: vec![]
         });
         functions.insert("sum".to_owned(), Function {
             ident: "sum".to_owned(),
             args: vec!["_".to_owned(), "_".to_owned()],
-            code: "##sum".to_owned(),
+            code: vec![Token::Data("##sum".to_owned())],
+            local_idents: vec![]
         });
 
         Context {
