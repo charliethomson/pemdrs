@@ -85,7 +85,7 @@ struct Tree {
     root: Node,
 } impl Tree {
     fn new(s: &str) -> Result<Self, String> {
-        Self::from_vec(shunting_yard(tokenize(s, &mut Context::new())?), &mut Context::new())
+        Self::from_vec(shunting_yard(tokenize(s, &mut Context::new())?, &mut Context::new()), &mut Context::new())
     }
 
     fn from_vec(stream: Vec<Token>, ctx: &mut Context) -> Result<Self, String> {
@@ -118,7 +118,12 @@ struct Tree {
                         }
                     }
                 },
-                _ => unreachable!()
+                Token::Function(func) => {
+
+                },
+                Token::Identifier(ident) => {
+                    
+                }
             }
         }
 

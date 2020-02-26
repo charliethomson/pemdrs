@@ -242,6 +242,19 @@ pub fn tokenize(s: &str, ctx: &mut Context) -> Result<Vec<Token>, String> {
             }
             nbuffer = String::new();
         }
+        // check for operators, parens
+        else if let Some(op) = Operator::from_char(c) {
+            if op == Operator::Assign {
+                if decl == Declaration::None {
+                    return Err("Encountered unexpected assignment operator".to_owned());
+                }
+            } else {
+                tokens.push(Token::Operator(op));
+            }
+        }
+        else if let Some(p) = Paren::from_char(c) {
+            tokens.push(Token::Paren(p));
+        }
         // put characters in the identifier buffer
         else if c.is_ascii_alphabetic() {
             idbuffer.push(c);
@@ -311,18 +324,10 @@ pub fn tokenize(s: &str, ctx: &mut Context) -> Result<Vec<Token>, String> {
                 }
             }
         }
-        // check for operators, parens
-        else if let Some(op) = Operator::from_char(c) {
-            tokens.push(Token::Operator(op));
-        }
-        else if let Some(p) = Paren::from_char(c) {
-            tokens.push(Token::Paren(p));
-        }
         // increment the pointer
         idx += 1;    
     }
 
-    eprintln!("tokens: {:?}, idbuffer: {}, nbuffer: {}, decl: {:?}", tokens, idbuffer, nbuffer, decl);
 
     // check the buffers for missed tokens
     if !idbuffer.is_empty() {
@@ -342,10 +347,35 @@ pub fn tokenize(s: &str, ctx: &mut Context) -> Result<Vec<Token>, String> {
             Err(e) => unreachable!()
         }
     }
-    eprintln!("tokens: {:?}, idbuffer: {}, nbuffer: {}, decl: {:?}", tokens, idbuffer, nbuffer, decl);
-    
-    
-    Ok(tokens)
+
+    eprintln!("tokens: {:?}, idbuffer: {}, nbuffer: {}, decl: {:?}, fnident: {}, argidents: {}, ctx.variables: {:?}", tokens, idbuffer, nbuffer, decl, fnident, argidents.join(" "), ctx.variables);
+
+    match decl {
+        Declaration::None => {
+            Ok(tokens)
+        },
+        Declaration::Function => {
+            if fnident.is_empty() {
+                Err("SyntaxError: `function` keyword not followed by an identifier".to_owned())
+            } else {
+                let func = Function::new(fnident.clone(), argidents, tokens);
+                ctx.functions.insert(fnident, func);
+                Ok(vec![])
+            }
+        },
+        Declaration::Variable => {
+            if varident.is_empty() {
+                Err("SyntaxError: `var` keyword not followed by an identifier".to_owned())
+            } else {
+                let val = match crate::tree::evaluate(&tokens, ctx) {
+                    Ok(v) => v,
+                    Err(e) => return Err(e)
+                };
+                ctx.variables.insert(varident, val);
+                Ok(tokens)
+            }
+        }
+    }
 }
 
 fn precedence(token: &Token) -> u32 {
@@ -385,7 +415,7 @@ where
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum Declaration {
     Function,
     Variable,
@@ -394,86 +424,40 @@ enum Declaration {
 
 
 /// Takes an infix notated token stream and converts it to postfix notation
-pub fn shunting_yard(tokens: Vec<Token>) -> Vec<Token> {
+pub fn shunting_yard(tokens: Vec<Token>, ctx: &mut Context) -> Vec<Token> {
     // /*DEBUG:*/ eprintln!("Begin reverse poilsh conversion");
     let mut output: Vec<Token> = Vec::new();
     let mut opstack: Vec<Token> = Vec::new();
     
     for token in tokens {
-        // /*DEBUG:*/ eprintln!("\nCurrent state:\n\tOperator stack: {:?}\n\tOutput: {:?}", opstack, output);
-        // /*DEBUG:*/ eprint!("Encountered {:?} -> ", token);
-        match token {
-            Token::Value(_v) => {
-                // /*DEBUG:*/ eprintln!("pushing token with value {} to the output", _v);
-                output.push(token);
+        match &token {
+            Token::Function(f) => {
+                opstack.push(token);
             },
-            Token::Operator(_op) => {
-                let p = precedence(&token);
-                // /*DEBUG:*/ eprintln!("Operator {:?} -> Popping tokens from stack: ", _op);
-                while !opstack.is_empty() {
-                    match opstack.last() {
-                        Some(&Token::Paren(_)) => {
-                            // /*DEBUG:*/ eprintln!("\tEncountered paren, breaking");
-                            break
-                        },
-                        Some(o) => {
-                            // /*DEBUG:*/ eprint!("\tEncountered operator {} -> ", o);
-                            if match OperatorAssociativity::from(&token) {
-                                OperatorAssociativity::Left => {
-                                    // /*DEBUG:*/ eprint!("looking for precedence({}) < {}...", o, p);
-                                    precedence(o) < p
-                                },
-                                OperatorAssociativity::Right => {
-                                    // /*DEBUG:*/ eprint!("looking for precedence({}) <= {}...", o, p);
-                                    precedence(o) <= p
-                                },
-                            } {
-                                // /*DEBUG:*/ eprintln!("Found! Breaking");
-                                break
-                            } else {
-                                // /*DEBUG:*/ eprintln!("Not found, popping operator from the stack to the output");
-                                output.push(opstack.pop().unwrap());
-                            }
-                        },
-                        _ => unreachable!()
-                    }
+            Token::Identifier(ident) => {
+                match ctx.variables.get(ident) {
+                    Some(val) => output.push(Token::Value(*val)),
+                    None => panic!("Unknown variable {}", ident)
                 }
-                opstack.push(token.clone());
+            },
+            Token::Operator(op) => {
+                opstack.push(token);
             },
             Token::Paren(p) => {
-                // /*DEBUG:*/ eprint!("Encountered paren -> ");
                 match p {
                     Paren::Left => {
-                        // /*DEBUG:*/ eprintln!("Left paren, push to operator stack");
-                        opstack.push(token.clone())
+
                     },
                     Paren::Right => {
-                        // /*DEBUG:*/ eprintln!("Right paren, popping operator stack to output until we see a left paren");
-                        while !opstack.is_empty() {
-                            if let Some(top) = opstack.pop() {
-                                match top {
-                                    Token::Paren(Paren::Left) => {
-                                        // /*DEBUG:*/ eprintln!("Encountered left paren, breaking");
-                                        break
-                                    },
-                                    o => {
-                                        // /*DEBUG:*/ eprintln!("\tpopping {} to the output", o);
-                                        output.push(o)
-                                    },
-                                }
-                            } else {
-                                unreachable!()
-                            }
-                        }
-                    },
+
+                    }
                 }
             },
-            Token::Function(f) => {
-
+            Token::Value(v) => {
+                output.push(token);
             },
-            _ => unreachable!()
+            _ => (),
         }
-
     }
 
     // /*DEBUG:*/ eprintln!("Clearing operator stack");
@@ -561,7 +545,7 @@ fn test_shunting_yard() {
         Token::new("+"),
     ];
 
-    assert_eq!(shunting_yard(tokens), expected);
+    assert_eq!(shunting_yard(tokens, &mut Context::new()), expected);
 
     let tokens = tokenize("((15 / (7 -(1 + 1))) * 3) - (2 + (1 + 1))", &mut Context::new()).unwrap();
     let expected = vec![
@@ -582,7 +566,7 @@ fn test_shunting_yard() {
         Token::new("-"),
     ];
 
-    assert_eq!(shunting_yard(tokens), expected);
+    assert_eq!(shunting_yard(tokens, &mut Context::new()), expected);
 
     // unary minus
     let tokens = tokenize("-10 + 5", &mut Context::new()).unwrap();
@@ -592,7 +576,7 @@ fn test_shunting_yard() {
         Token::new("5"),
         Token::new("+"),
     ];
-    assert_eq!(shunting_yard(tokens), expected);
+    assert_eq!(shunting_yard(tokens, &mut Context::new()), expected);
 
 }
 
@@ -622,5 +606,12 @@ fn test_operator_evaluate() {
     assert_eq!(Operator::USub.evaluate(0.0 , 10.0), -10.0);
     assert_eq!(Operator::USub.evaluate(0.0, 15.0), -15.0);
     assert_eq!(Operator::USub.evaluate(0.0, 10.0), -10.0);
+
+}
+
+#[test]
+fn test_operator_from_char() {
+    assert_eq!(Some(Paren::Left), Paren::from_char('('));
+    assert_eq!(Some(Paren::Right), Paren::from_char(')'));
 
 }

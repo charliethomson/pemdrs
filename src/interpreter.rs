@@ -3,6 +3,7 @@ use {
     std::{
         io::{ self, Write },
         collections::HashMap,
+        fmt::{ Display, Formatter, Result as fmt_Result },
     },
     crate::{
         function::Function,
@@ -149,6 +150,7 @@ pub struct Interpreter {
     }
 }
 
+#[derive(Debug)]
 pub struct Context {
     pub(crate) functions: HashMap<String, Function>,
     pub(crate) variables: HashMap<String, f64>,
@@ -217,5 +219,17 @@ pub struct Context {
             variables: HashMap::new(),
             ans: 0.0,
         }
+    }
+} impl Display for Context {
+    fn fmt(&self, f: &mut Formatter) -> fmt_Result {
+        write!(f, "Context:\n\tfunctions: {}\n\tvariables: {}\n\tans: {}", 
+            self.functions.iter().map(|(ident, func)| {
+                format!("{:?}", func)
+            }).collect::<Vec<String>>().join("\n\t\t"),
+            self.variables.iter().map(|(ident, val)| {
+                format!("var {} = {}", ident, val)
+            }).collect::<Vec<String>>().join("\n\t\t"),
+            self.ans,
+        )
     }
 }

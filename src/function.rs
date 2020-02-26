@@ -29,42 +29,17 @@ pub struct Function {
     pub(crate) code: Vec<Token>,
     pub(crate) local_idents: Vec<Token>,
 } impl Function {
-    pub fn new(src: String) -> Result<Self, String> {
-        let mut spl = src.split_ascii_whitespace().map(|s| s.to_owned());
-        match spl.next() {
-            Some(kw) => {
-                if kw.to_lowercase() == "function" {
-                    let ident = spl.next().expect(&format!("Failed to get ident from {}", src));
-                    let mut args = Vec::new();
-                    while let Some(arg) = spl.next() {
-                        if arg == "=" {
-                            break;
-                        } else {
-                            args.push(arg);
-                        }
-                    }
 
-                    let code = &spl.collect::<Vec<String>>().join(" ");
-                    eprintln!("aaa{:?}", code);
-                    // let code = tokenize(&src)?;
-
-                    // return Ok(Function {
-                    //     ident,
-                    //     args,
-                    //     code,
-                    //     local_idents,
-                    // });
-
-                } else {
-                    unreachable!()
-                }
-            },
-            None => {
-
-            }
+    pub fn new(ident: String, args: Vec<String>, tokens: Vec<Token>) -> Self {
+        
+        let local_idents: Vec<Token> = args.iter().map(|id| Token::Identifier(id.clone())).collect();
+        
+        Function {
+            ident,
+            args,
+            code: tokens,
+            local_idents
         }
-    
-        Err("".to_owned())
     }
 
     pub fn call(&self, args: Vec<String>) -> Result<String, String> {
@@ -210,7 +185,7 @@ pub struct Function {
     }
 } impl Display for Function {
     fn fmt(&self, f: &mut Formatter) -> fmt_Result {
-        write!(f, "{} {} = {:?}", self.ident, self.args.join(" "), self.code)
+        write!(f, "function {} {}:\n\tcode: {:?}", self.ident, self.args.join(" "), self.code.iter().map(|tok| format!("{}", tok)))
     }
 }
 
@@ -218,8 +193,8 @@ pub struct Function {
 #[test]
 fn test_function_new() {
     std::thread::sleep_ms(100);
-    let sin = Function::new("function sin a = ##sin".to_owned()).unwrap();
-    let foo = Function::new("function foo a b = 2 * a + b".to_owned()).unwrap();
-    eprintln!("{:?}", sin.code);
-    eprintln!("{:?}", foo.code);
+    let mut ctx = crate::interpreter::Context::new();
+    let foo = tokenize("function foo a b = 2 * a + b", &mut ctx);
+    let var_assn = tokenize("var bar = foo 10 12", &mut ctx);
+    eprintln!("ctx: {}", ctx);
 }
